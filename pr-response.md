@@ -1,8 +1,17 @@
 # PR Response Doc — CineLog Watchlist Feature
 
+## git log --oneline
+
+![](image.png)
+
 ## AI Usage
 
-<!-- Fill in at the end — how you used AI tools during this project -->
+Amazon Q (AI assistant in the IDE) was used throughout this project in the following ways:
+
+- **Codebase orientation:** Provided full file contents of `models.py`, `collection_service.py`, and `test_collection.py` and asked for a summary of what each file does, what patterns it uses, and what dependencies it has. This was verified against the actual code before acting on it.
+- **Pattern understanding:** Asked the AI to walk through `add_to_collection()` step by step — specifically what happens when a duplicate is detected and what exception is raised. Used this to understand the pattern before writing the equivalent check in `add_to_watchlist()` myself.
+- **Stress-testing design arguments:** For Comment 4 (default visibility), shared a draft argument for `public=True` and asked "what counterargument would a careful reviewer raise?" The AI surfaced the privacy expectation concern (users not realizing their list is public). This was already partially in my draft but the AI sharpened it — the final response acknowledges it more directly and notes it is a frontend labeling problem, not a default problem.
+- **Conflict resolution guidance:** During the rebase, used the AI to identify exactly which files would conflict and why (main deleted `WatchlistEntry`, our branch modified it), and to prepare the resolved version of `models.py` before running `git rebase --continue`.
 
 ## Comment 1 — Rename
 
@@ -39,4 +48,32 @@
 
 ## PR Description
 
-<!-- Written at the end — feature overview, design decisions, manual testing steps -->
+### What this PR does
+
+Adds a watchlist feature to CineLog. Users can save films they want to watch to a personal watchlist, separate from their collection (films already watched). The feature adds a `WatchlistEntry` model, a `watchlist_service` with `add_to_watchlist()` and `get_watchlist()`, and REST endpoints at `GET /watchlist/<user_id>` and `POST /watchlist/<user_id>/add`.
+
+### Design decisions
+
+**Default visibility (`public=True`):** Watchlist entries default to public. CineLog is a community app — defaulting to public maximizes social discovery value without requiring extra action from the user. The tradeoff is that users who don't read the UI may not realize their list is visible; this should be addressed with clear labeling in the frontend.
+
+**Sort order (newest first):** `get_watchlist()` sorts by `date_added DESC`, matching `get_collection()`. A watchlist is a queue — the most recently added film is the most top-of-mind. This also keeps both endpoints consistent so a frontend can apply the same mental model to both.
+
+### How to manually test
+
+1. Start the app: `python app.py`
+2. In a separate terminal, seed a user and film directly via sqlite or use existing IDs from `cinelog.db`.
+3. Add a film to the watchlist:
+   ```
+   curl -X POST http://localhost:5000/watchlist/<user_id>/add \
+     -H "Content-Type: application/json" \
+     -d '{"film_id": "<film_uuid>"}'
+   ```
+   Expected: `201` response with the new `WatchlistEntry` as JSON.
+4. Retrieve the watchlist:
+   ```
+   curl http://localhost:5000/watchlist/<user_id>
+   ```
+   Expected: `200` with a list of films, newest first.
+5. Add the same film again — expected: `409` or service-layer `AlreadyInWatchlistError` (currently bubbles as a 500 until a route-level error handler is added).
+6. Add a non-existent film ID — expected: `FilmNotFoundError` raised.
+7. Run the full test suite: `pytest tests/ -v` — all tests should pass.
